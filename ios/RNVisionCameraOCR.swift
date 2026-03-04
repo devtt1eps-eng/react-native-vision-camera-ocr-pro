@@ -7,6 +7,8 @@ import MLKitTextRecognitionDevanagari
 import MLKitTextRecognitionJapanese
 import MLKitTextRecognitionKorean
 import MLKitCommon
+import CoreImage
+import UIKit
 
 @objc(RNVisionCameraOCR)
 public class RNVisionCameraOCR: FrameProcessorPlugin {
@@ -68,35 +70,45 @@ public class RNVisionCameraOCR: FrameProcessorPlugin {
         var image: VisionImage?
 
         do {
+            guard let pixelBuffer = CMSampleBufferGetImageBuffer(buffer) else {
+                return [:]
+            }
+            
+            // Convert pixel buffer to CIImage and apply correct orientation
+            // This ensures the image is physically rotated, not just metadata
+            let baseCIImage = CIImage(cvPixelBuffer: pixelBuffer)
+            let orientedCIImage = baseCIImage.oriented(getCIImageOrientation(from: frame.orientation))
+            
+            let context = CIContext(options: nil)
+            guard let cgImage = context.createCGImage(orientedCIImage, from: orientedCIImage.extent) else {
+                return [:]
+            }
+            
             if scanRegion != nil {
-                guard let pixelBuffer = CMSampleBufferGetImageBuffer(buffer) else {
+                // Apply scan region cropping
+                let imgWidth = Double(cgImage.width)
+                let imgHeight = Double(cgImage.height)
+                let left: Double = Double(scanRegion?["left"] ?? 0) / 100.0 * imgWidth
+                let top: Double = Double(scanRegion?["top"] ?? 0) / 100.0 * imgHeight
+                let width: Double = Double(scanRegion?["width"] ?? 100) / 100.0 * imgWidth
+                let height: Double = Double(scanRegion?["height"] ?? 100) / 100.0 * imgHeight
+                let cropRegion = CGRect(
+                    x: left,
+                    y: top,
+                    width: width,
+                    height: height
+                )
+                guard let croppedCGImage = cgImage.cropping(to: cropRegion) else {
                     return [:]
                 }
-                let ciImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(.right)
-                let context = CIContext(options: nil)
-                if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
-                    let imgWidth = Double(cgImage.width)
-                    let imgHeight = Double(cgImage.height)
-                    let left: Double = Double(scanRegion?["left"] ?? 0) / 100.0 * imgWidth
-                    let top: Double = Double(scanRegion?["top"] ?? 0) / 100.0 * imgHeight
-                    let width: Double = Double(scanRegion?["width"] ?? 100) / 100.0 * imgWidth
-                    let height: Double = Double(scanRegion?["height"] ?? 100) / 100.0 * imgHeight
-                    let cropRegion = CGRect(
-                        x: left,
-                        y: top,
-                        width: width,
-                        height: height
-                    )
-                    guard let croppedCGImage = cgImage.cropping(to: cropRegion) else {
-                        return [:]
-                    }
-                    let uiImage = UIImage(cgImage: croppedCGImage)
-                    image = VisionImage(image: uiImage)
-                }
-            }else{
-                image = VisionImage(buffer: buffer)
-                image!.orientation = getOrientation(orientation: frame.orientation)
+                let uiImage = UIImage(cgImage: croppedCGImage, scale: 1.0, orientation: .up)
+                image = VisionImage(image: uiImage)
+            } else {
+                // Use full image with correct orientation already applied
+                let uiImage = UIImage(cgImage: cgImage, scale: 1.0, orientation: .up)
+                image = VisionImage(image: uiImage)
             }
+            
             let result = try self.textRecognizer.results(in: image!)
             let blocks = RNVisionCameraOCR.processBlocks(blocks: result.blocks)
             data["resultText"] = result.text
@@ -216,18 +228,38 @@ public class RNVisionCameraOCR: FrameProcessorPlugin {
     ]
     }
 
-    private func getOrientation(orientation: UIImage.Orientation) -> UIImage.Orientation {
-        switch orientation {
+    /// Converts UIImage.Orientation from VisionCamera frame to CGImagePropertyOrientation
+    /// This ensures the CIImage is physically rotated to match the device orientation.
+    /// iOS camera sensors are mounted in landscape, so we need to rotate the pixel data
+    /// to match portrait mode when the device is held upright.
+    private func getCIImageOrientation(from uiOrientation: UIImage.Orientation) -> CGImagePropertyOrientation {
+        switch uiOrientation {
         case .up:
-          return .up
-        case .left:
-          return .right
+            // Device is in portrait, camera sensor is landscape (90° rotated)
+            // So we need to rotate 90° clockwise to get upright text
+            return .right
         case .down:
-          return .down
+            // Device is upside down, rotate 270° clockwise (or 90° counter-clockwise)
+            return .left
+        case .left:
+            // Device rotated 90° counter-clockwise (landscape left)
+            // Camera sensor is already in landscape, so no rotation needed
+            return .up
         case .right:
-          return .left
-        default:
-          return .up
+            // Device rotated 90° clockwise (landscape right)
+            // Camera sensor is already in landscape, rotate 180°
+            return .down
+        case .upMirrored:
+            return .rightMirrored
+        case .downMirrored:
+            return .leftMirrored
+        case .leftMirrored:
+            return .upMirrored
+        case .rightMirrored:
+            return .downMirrored
+        @unknown default:
+            // Default to portrait orientation (most common use case)
+            return .right
         }
     }
 }
