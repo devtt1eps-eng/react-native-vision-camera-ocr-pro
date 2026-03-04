@@ -1,5 +1,5 @@
 {
-  "name": "react-native-vision-camera-ocr-plus",
+  "name": "react-native-vision-camera-ocr-pro",
   "version": "1.2.3",
   "description": "React Native Vision Camera plugin for on-device text recognition (OCR) and translation using ML Kit. Maintained fork of react-native-vision-camera-text-recognition",
   "main": "lib/commonjs/index",
@@ -60,7 +60,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/jamenamcinteer/react-native-vision-camera-ocr-plus"
+    "url": "git+https://github.com/jamenamcinteer/react-native-vision-camera-ocr-plus.git"
   },
   "author": "Jamena McInteer <hello@jamena.dev> (https://github.com/jamenamcinteer)",
   "license": "MIT",
@@ -147,5 +147,7 @@
     ]
   },
   "packageManager": "yarn@1.22.21+sha1.1959a18351b811cdeedbd484a8f86c3cc3bbaf72",
-  "dependencies": {}
+  "directories": {
+    "example": "example"
+  }
 }
